@@ -21,19 +21,21 @@ log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
 log_warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error()   { echo -e "${RED}[ERROR]${NC} $1"; }
 
-get_tool_skill_path() {
+get_tool_skill_paths() {
   case "$1" in
-    claude) echo "$HOME/.claude/skills" ;;
-    codex)  echo "$HOME/.codex/skills" ;;
-    gemini) echo "$HOME/.gemini/skills" ;;
+    claude)   echo "$HOME/.claude/skills" ;;
+    codex)    echo "$HOME/.codex/skills" ;;
+    openclaw) echo "$HOME/.openclaw/workspace/skills"
+              echo "$HOME/.openclaw/workspace/.agents/skills" ;;
+    gemini)   echo "$HOME/.gemini/skills" ;;
   esac
 }
 
 detect_tools() {
   local tools=()
-  for tool in claude codex gemini; do
+  for tool in claude codex openclaw gemini; do
     local dir
-    dir=$(get_tool_skill_path "$tool")
+    dir=$(get_tool_skill_paths "$tool" | head -1)
     if [ -d "$(dirname "$dir")" ]; then
       tools+=("$tool")
     fi
@@ -92,25 +94,28 @@ cmd_install() {
   tools=($(detect_tools))
 
   if [ ${#tools[@]} -eq 0 ]; then
-    log_warn "No AI tools detected (claude/codex/gemini)"
+    log_warn "No AI tools detected"
+    echo "  Supported: claude, codex, openclaw, gemini"
     echo "  Manually create symlinks:"
     for skill in "${SKILLS[@]}"; do
       echo "  ln -s $INSTALL_DIR/$skill ~/.claude/skills/$skill"
     done
   else
     for tool in "${tools[@]}"; do
-      local link_dir
-      link_dir=$(get_tool_skill_path "$tool")
-      mkdir -p "$link_dir"
-
-      for skill in "${SKILLS[@]}"; do
-        local link_path="$link_dir/$skill"
-        if [ -e "$link_path" ] || [ -L "$link_path" ]; then
-          rm -rf "$link_path"
-        fi
-        ln -s "$INSTALL_DIR/$skill" "$link_path"
-      done
-      log_success "$tool: 3 symlinks created"
+      while IFS= read -r link_dir; do
+        mkdir -p "$link_dir"
+        for skill in "${SKILLS[@]}"; do
+          local link_path="$link_dir/$skill"
+          if [ -e "$link_path" ] || [ -L "$link_path" ]; then
+            if [ -L "$link_path" ] && [ "$(readlink "$link_path")" = "$INSTALL_DIR/$skill" ]; then
+              continue  # already correct
+            fi
+            rm -rf "$link_path"
+          fi
+          ln -s "$INSTALL_DIR/$skill" "$link_path"
+        done
+        log_success "$tool: 3 symlinks → $link_dir"
+      done < <(get_tool_skill_paths "$tool")
     done
   fi
 
@@ -139,17 +144,18 @@ cmd_status() {
   echo ""
   echo "Tool symlinks:"
   for tool in $(detect_tools); do
-    local link_dir
-    link_dir=$(get_tool_skill_path "$tool")
     echo "  $tool:"
-    for skill in "${SKILLS[@]}"; do
-      local link_path="$link_dir/$skill"
-      if [ -L "$link_path" ]; then
-        echo -e "    ${GREEN}✓${NC} $skill → $(readlink "$link_path")"
-      else
-        echo -e "    ${RED}✗${NC} $skill"
-      fi
-    done
+    while IFS= read -r link_dir; do
+      echo "    $link_dir:"
+      for skill in "${SKILLS[@]}"; do
+        local link_path="$link_dir/$skill"
+        if [ -L "$link_path" ]; then
+          echo -e "      ${GREEN}✓${NC} $skill → $(readlink "$link_path")"
+        else
+          echo -e "      ${RED}✗${NC} $skill"
+        fi
+      done
+    done < <(get_tool_skill_paths "$tool")
   done
   echo ""
 }
@@ -160,7 +166,7 @@ cmd_uninstall() {
   echo "  - $INSTALL_DIR/skill-builder"
   echo "  - $INSTALL_DIR/skill-explainer"
   echo "  - $INSTALL_DIR/skill-migrate"
-  echo "  - All symlinks from Claude/Codex/Gemini skills dirs"
+  echo "  - All symlinks from Claude/Codex/OpenClaw/Gemini skills dirs"
 
   read -p "  Confirm uninstall? (y/N): " -r REPLY
   if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -172,15 +178,15 @@ cmd_uninstall() {
 
   # Remove symlinks
   for tool in $(detect_tools); do
-    local link_dir
-    link_dir=$(get_tool_skill_path "$tool")
-    for skill in "${SKILLS[@]}"; do
-      local link_path="$link_dir/$skill"
-      if [ -L "$link_path" ]; then
-        rm "$link_path"
-        log_success "Removed symlink: $tool/$skill"
-      fi
-    done
+    while IFS= read -r link_dir; do
+      for skill in "${SKILLS[@]}"; do
+        local link_path="$link_dir/$skill"
+        if [ -L "$link_path" ]; then
+          rm "$link_path"
+          log_success "Removed symlink: $link_dir/$skill"
+        fi
+      done
+    done < <(get_tool_skill_paths "$tool")
   done
 
   # Remove installed dirs
@@ -209,6 +215,8 @@ Commands:
 Flags:
   --yes       Non-interactive, use defaults
   --dir PATH  Custom install directory (default: $DEFAULT_INSTALL_DIR)
+
+Supported tools: claude, codex, openclaw (2 paths), gemini
 
 Examples:
   ./install.sh                        # interactive
