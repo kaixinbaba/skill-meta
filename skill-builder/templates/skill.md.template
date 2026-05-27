@@ -1,0 +1,28 @@
+---
+name: {{NAME}}
+description: {{DESCRIPTION}}
+---
+
+# {{TITLE}}
+
+## 你是谁
+
+{{IDENTITY}}
+
+## 触发条件
+
+{{TRIGGER_CONDITIONS}}
+
+## 工作流程
+
+{{WORKFLOW_STEPS}}
+
+## 共享资源
+
+| 文件 | 用途 | 加载时机 |
+|------|------|---------|
+{{RESOURCE_TABLE}}
+
+## 红线
+
+{{RED_LINES}}
